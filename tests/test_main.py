@@ -9,6 +9,8 @@ from unittest.mock import patch
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+import gates
+
 quantum = importlib.import_module("main")
 
 
@@ -50,7 +52,7 @@ class QuantumSimulatorTests(unittest.TestCase):
         register = quantum.QRegister(1)
         quantum.H.apply(register[0])
 
-        with patch.object(quantum.np.random, "choice", return_value=1):
+        with patch.object(gates.np.random, "choice", return_value=1):
             measured_value = quantum.Measure.apply(register[0])
 
         self.assertEqual(measured_value, 1)
