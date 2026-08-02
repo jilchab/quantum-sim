@@ -1,7 +1,7 @@
 from __future__ import annotations
-from dataclasses import dataclass
 
 import functools as ft
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -24,7 +24,7 @@ class QRegister:
     def __str__(self):
         s = ""
         for i in range(2 ** self.count):
-            if self.amps[i] == 0:
+            if np.isclose(self.amps[i], 0):
                 continue
 
             bin_str = format(i, f"0{self.count}b")
@@ -52,7 +52,7 @@ class QRegister:
                 case -0.707 + 0.707j:
                     amp = "-(1/√2 - 1/√2j)"
                 case -0.707 - 0.707j:
-                    amp = "-(1/√2 + 1/√2j"
+                    amp = "-(1/√2 + 1/√2j)"
                 case _:
                     amp = str(np.round(self.amps[i], 3))
             s += f"{amp}|{bin_str}> "
@@ -199,8 +199,27 @@ class Measure:
         register = qbit.register
         probabilities = register.probabilities()
 
-        p = [sum(probabilities[i] for i in range(len(probabilities)) if (i >> (register.count - 1 - qbit.index)) & 1 == 0),
-             sum(probabilities[i] for i in range(len(probabilities)) if (i >> (register.count - 1 - qbit.index)) & 1 == 1)]
+        p = np.array(
+            [
+                sum(
+                    probabilities[i]
+                    for i in range(len(probabilities))
+                    if (i >> (register.count - 1 - qbit.index)) & 1 == 0
+                ),
+                sum(
+                    probabilities[i]
+                    for i in range(len(probabilities))
+                    if (i >> (register.count - 1 - qbit.index)) & 1 == 1
+                ),
+            ],
+            dtype=float,
+        )
+
+        total_probability = p.sum()
+        if np.isclose(total_probability, 0):
+            raise ValueError("Cannot measure a register with zero total probability.")
+
+        p /= total_probability
 
         measured_value = np.random.choice([0, 1], p=p)
 
@@ -220,31 +239,36 @@ class Measure:
         return int(measured_value)
 
 
-q = QRegister(count=3)
-print(f"{f'qbits[{q.count}] q':20} -> q: {q}")
+def main() -> None:
+    q = QRegister(count=3)
+    print(f"{f'qbits[{q.count}] q':20} -> q: {q}")
 
-b = [0] * 2
-print(f"{'bit[2] b':20} -> q: {q}")
+    b = [0, 0]
+    print(f"{'bit[2] b':20} -> q: {q}")
 
-H.apply(q[1])
-print(f"{'h q[1]':20} -> q: {q}")
+    H.apply(q[1])
+    print(f"{'h q[1]':20} -> q: {q}")
 
-CX.apply(q[1], q[2])
-print(f"{'cx q[1] q[2]':20} -> q: {q}")
+    CX.apply(q[1], q[2])
+    print(f"{'cx q[1] q[2]':20} -> q: {q}")
 
-CX.apply(q[0], q[1])
-print(f"{'cx q[0] q[1]':20} -> q: {q}")
+    CX.apply(q[0], q[1])
+    print(f"{'cx q[0] q[1]':20} -> q: {q}")
 
-H.apply(q[0])
-print(f"{'h q[0]':20} -> q: {q}")
+    H.apply(q[0])
+    print(f"{'h q[0]':20} -> q: {q}")
 
-b[0] = Measure.apply(q[0])
-print(f"{'b[0] = measure q[0]':20} -> q: {q}")
+    b[0] = Measure.apply(q[0])
+    print(f"{'b[0] = measure q[0]':20} -> q: {q}")
 
-b[1] = Measure.apply(q[1])
-print(f"{'b[1] = measure q[1]':20} -> q: {q}")
+    b[1] = Measure.apply(q[1])
+    print(f"{'b[1] = measure q[1]':20} -> q: {q}")
 
-CZ.apply(q[0], q[2])
-print(f"{'cz q[0] q[2]':20} -> q: {q}")
-CX.apply(q[1], q[2])
-print(f"{'cx q[1] q[2]':20} -> q: {q}")
+    CZ.apply(q[0], q[2])
+    print(f"{'cz q[0] q[2]':20} -> q: {q}")
+    CX.apply(q[1], q[2])
+    print(f"{'cx q[1] q[2]':20} -> q: {q}")
+
+
+if __name__ == "__main__":
+    main()
