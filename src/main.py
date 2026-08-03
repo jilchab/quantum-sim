@@ -12,7 +12,8 @@ def main() -> None:
     state = State()
     parse(input_str, state)
 
-    print(state.qbits_dict, state.bits_dict)
+    print(state.qbits_dict["q"])
+    print(state.qbits_dict["q"].dissociate()[2])
 
 
 if __name__ == "__main__":

@@ -19,7 +19,7 @@ class QuantumSimulatorTests(unittest.TestCase):
         register = quantum.QRegister(3)
 
         self.assertEqual(register.count, 3)
-        self.assertEqual(str(register), "|000>")
+        self.assertEqual(str(register), "|000❯")
 
     def test_getitem_rejects_out_of_range_index(self) -> None:
         register = quantum.QRegister(2)
