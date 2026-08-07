@@ -8,33 +8,32 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-import parser as quantum_parser
-from qregister import QRegister
+from quantum import parser as quantum_parser
+from quantum.qregister import QRegister
 
 
 class QRegisterFormattingTests(unittest.TestCase):
     def test_symbolic_amplitudes_keep_common_ratios(self) -> None:
-        register = QRegister(3)
-        register.amps = np.array(
+        state_vector = np.array(
             [
                 1 / 2,
+                1 / 2,
+                0,
+                0,
+                0,
+                0,
+                0,
                 1 / np.sqrt(2),
-                0,
-                0,
-                0,
-                np.sqrt(3) / 2 + 0.5j,
-                0,
-                -1j,
             ],
             dtype=np.complex128,
         )
+        register = QRegister(3, density=np.outer(state_vector, state_vector.conj()))
 
         text = str(register)
 
         self.assertIn("1/2|000❯", text)
-        self.assertIn("1/√2|001❯", text)
-        self.assertIn("(√3/2 + 1/2j)|101❯", text)
-        self.assertIn("-j|111❯", text)
+        self.assertIn("1/2|001❯", text)
+        self.assertIn("1/√2|111❯", text)
 
     def test_single_qubit_symbolic_states_use_ket_shorthand(self) -> None:
         cases = [
@@ -48,9 +47,38 @@ class QRegisterFormattingTests(unittest.TestCase):
         ]
 
         for amps, expected in cases:
-            register = QRegister(1)
-            register.amps = amps
+            register = QRegister(1, density=np.outer(amps, amps.conj()))
             self.assertEqual(str(register), expected)
+
+
+class GeneratorTests(unittest.TestCase):
+    def test_ghz_generator_builds_expected_density(self) -> None:
+        register = QRegister.ghz(3)
+        state_vector = np.zeros(8, dtype=np.complex128)
+        state_vector[0] = 1 / np.sqrt(2)
+        state_vector[-1] = 1 / np.sqrt(2)
+
+        np.testing.assert_allclose(register.density, np.outer(state_vector, state_vector.conj()))
+
+    def test_w_state_generator_builds_expected_density(self) -> None:
+        register = QRegister.w_state(3)
+        state_vector = np.zeros(8, dtype=np.complex128)
+        for index in range(8):
+            if bin(index).count("1") == 1:
+                state_vector[index] = 1 / np.sqrt(3)
+
+        np.testing.assert_allclose(register.density, np.outer(state_vector, state_vector.conj()))
+
+    def test_werner_generator_builds_expected_density(self) -> None:
+        purity = 0.75
+        register = QRegister.werner(purity)
+        singlet = np.array([0, 1, -1, 0], dtype=np.complex128) / np.sqrt(2)
+        expected = purity * np.outer(singlet, singlet.conj())
+        expected += (1 - purity) * np.eye(4, dtype=np.complex128) / 4
+
+        np.testing.assert_allclose(register.density, expected)
+        np.testing.assert_allclose(register[0].density, np.diag([0.5, 0.5]))
+        np.testing.assert_allclose(register[1].density, np.diag([0.5, 0.5]))
 
 
 class ParserTests(unittest.TestCase):
@@ -70,44 +98,29 @@ class ParserTests(unittest.TestCase):
         )
 
         np.testing.assert_allclose(
-            state.qbits_dict["q"].amps,
-            np.array([0, -1j, 0, 0], dtype=np.complex128),
+            state.qbits_dict["q"].density,
+            np.array(
+                [
+                    [0, 0, 0, 0],
+                    [0, 1, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                ],
+                dtype=np.complex128,
+            ),
         )
         self.assertEqual(state.bits_dict["b"][0], 0)
 
-    def test_collect_unique_qbit_groups_returns_unique_indices(self) -> None:
-        register = QRegister(3)
-
-        quantum_parser.H.apply(register[0])
-        quantum_parser.X.apply(register[1])
-        quantum_parser.H.apply(register[2])
-
-        groups = register.dissociate()
-        indices = [tuple(group.indices) for group in groups]
-
-        self.assertEqual(
-            indices,
-            [
-                (0,),
-                (1,),
-                (2,),
-            ],
-        )
-
-    def test_collect_unique_qbit_groups_finds_two_factor_groups(self) -> None:
-        register = QRegister(5)
+    def test_qbit_views_expose_reduced_density_matrices(self) -> None:
+        register = QRegister(2)
 
         quantum_parser.H.apply(register[0])
         quantum_parser.CX.apply(register[0], register[1])
 
-        quantum_parser.H.apply(register[2])
-        quantum_parser.CX.apply(register[2], register[3])
-        quantum_parser.CX.apply(register[3], register[4])
-
-        groups = register.dissociate()
-        indices = [tuple(group.indices) for group in groups]
-
-        self.assertEqual(indices, [(0, 1), (2, 3, 4)])
+        self.assertEqual(register[0].density.shape, (2, 2))
+        self.assertEqual(register[1].density.shape, (2, 2))
+        np.testing.assert_allclose(register[0].density, np.diag([0.5, 0.5]))
+        np.testing.assert_allclose(register[1].density, np.diag([0.5, 0.5]))
 
 
 if __name__ == "__main__":

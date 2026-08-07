@@ -13,7 +13,13 @@ This repository contains a small quantum circuit simulator implemented with NumP
 ### Run
 
 ```bash
-uv run python src/main.py
+uv run quantum
+```
+
+To run a specific circuit file, pass its path:
+
+```bash
+uv run quantum teleport.qasm
 ```
 
 ### Notes

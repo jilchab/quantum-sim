@@ -8,8 +8,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from gates import CH, CX, CY, CZ, RX, RY, RZ, SWAP, H, Measure, X, Y, Z
-from qregister import QRegister
+from .gates import CH, CX, CY, CZ, RX, RY, RZ, SWAP, H, Measure, X, Y, Z
+from .qregister import QRegister
 
 qbits_pattern = re.compile(r"^\s*(?:qbits|qubits)\s*\[\s*(\d+)\s*\]\s+(\w+)\s*$")
 bits_pattern = re.compile(r"^\s*bits\s*\[\s*(\d+)\s*\]\s+(\w+)\s*$")
