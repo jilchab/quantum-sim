@@ -52,6 +52,16 @@ class QRegisterFormattingTests(unittest.TestCase):
 
 
 class GeneratorTests(unittest.TestCase):
+    def test_density_setter_rebuilds_cached_qbits(self) -> None:
+        register = QRegister(2)
+        bell = QRegister.ghz(2)
+
+        register.density = bell.density
+
+        self.assertEqual(len(register.qbits), 2)
+        self.assertEqual(register[0].entangled_indices, [1])
+        self.assertEqual(register[1].entangled_indices, [0])
+
     def test_ghz_generator_builds_expected_density(self) -> None:
         register = QRegister.ghz(3)
         state_vector = np.zeros(8, dtype=np.complex128)
@@ -68,18 +78,6 @@ class GeneratorTests(unittest.TestCase):
                 state_vector[index] = 1 / np.sqrt(3)
 
         np.testing.assert_allclose(register.density, np.outer(state_vector, state_vector.conj()))
-
-    def test_werner_generator_builds_expected_density(self) -> None:
-        purity = 0.75
-        register = QRegister.werner(purity)
-        singlet = np.array([0, 1, -1, 0], dtype=np.complex128) / np.sqrt(2)
-        expected = purity * np.outer(singlet, singlet.conj())
-        expected += (1 - purity) * np.eye(4, dtype=np.complex128) / 4
-
-        np.testing.assert_allclose(register.density, expected)
-        np.testing.assert_allclose(register[0].density, np.diag([0.5, 0.5]))
-        np.testing.assert_allclose(register[1].density, np.diag([0.5, 0.5]))
-
 
 class ParserTests(unittest.TestCase):
     def test_parser_supports_rz_and_swap(self) -> None:

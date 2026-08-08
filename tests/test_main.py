@@ -36,19 +36,18 @@ def test_h_creates_equal_superposition() -> None:
     H.apply(register[0])
 
     np.testing.assert_allclose(
-        register.amps,
+        register.state_vector(),
         np.array([1 / np.sqrt(2), 1 / np.sqrt(2)], dtype=np.complex128),
     )
 
 
 def test_cx_flips_target_when_control_is_one() -> None:
-    register = QRegister(2)
-    register.amps = np.array([0, 0, 0, 1], dtype=np.complex128)
+    register = QRegister.ones(2)
 
     CX.apply(register[0], register[1])
 
     np.testing.assert_allclose(
-        register.amps,
+        register.state_vector(),
         np.array([0, 0, 1, 0], dtype=np.complex128),
     )
 
@@ -62,6 +61,6 @@ def test_measure_collapses_state() -> None:
 
     assert measured_value == 1
     np.testing.assert_allclose(
-        register.amps,
+        register.state_vector(),
         np.array([0, 1], dtype=np.complex128),
     )
