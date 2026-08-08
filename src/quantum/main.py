@@ -21,6 +21,6 @@ def main() -> None:
     state = State()
     parse(input_str, state)
 
+
 if __name__ == "__main__":
     main()
-

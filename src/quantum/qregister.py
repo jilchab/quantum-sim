@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import numpy as np
 
 _SYMBOLIC_MAGNITUDES: tuple[tuple[float, str], ...] = (
@@ -115,47 +116,112 @@ def _density_from_state_vector(state_vector: np.ndarray) -> np.ndarray:
     return np.outer(state_vector, state_vector.conj())
 
 
+def _partial_trace(
+    density: np.ndarray, count: int, keep_indices: list[int]
+) -> np.ndarray:
+    traced_indices = [index for index in range(count) if index not in keep_indices]
+    tensor = density.reshape([2] * count + [2] * count)
+    permutation = [*keep_indices, *traced_indices]
+    permutation.extend(index + count for index in keep_indices)
+    permutation.extend(index + count for index in traced_indices)
+    tensor = np.transpose(tensor, permutation)
+    kept_dim = 2 ** len(keep_indices)
+    traced_dim = 2 ** len(traced_indices)
+    tensor = tensor.reshape(kept_dim, traced_dim, kept_dim, traced_dim)
+    return np.einsum("aibi->ab", tensor)
+
+
+def _dissociate_indices(
+    density: np.ndarray,
+    count: int,
+    indices: list[int] | None = None,
+) -> list[list[int]]:
+    if indices is None:
+        indices = list(range(count))
+
+    if count <= 1:
+        return [indices]
+
+    for split in range(1, count):
+        left_density = _partial_trace(density, count, list(range(split)))
+        right_density = _partial_trace(density, count, list(range(split, count)))
+
+        if np.allclose(density, np.kron(left_density, right_density)):
+            left_groups = _dissociate_indices(left_density, split, indices[:split])
+            right_groups = _dissociate_indices(
+                right_density,
+                count - split,
+                indices[split:],
+            )
+            return left_groups + right_groups
+
+    return [indices]
+
+
 class QRegister:
     def __init__(self, count: int, density: np.ndarray | None = None) -> None:
         self.count = count
+        self._density = np.zeros([2**count, 2**count], dtype=np.complex128)
+        self.qbits: tuple[Qbit, ...] = ()
+
         if density is None:
-            self.density = np.zeros([2**count, 2**count], dtype=np.complex128)
-            self.density[0, 0] = 1
-        else:
-            if density.shape != (2**count, 2**count):
-                raise ValueError(
-                    f"Shape of density ({density.shape}) does not match (2**count, 2**count) ({(2**count, 2**count)})."
-                )
-            self.density = density.astype(np.complex128)
+            density = np.zeros([2**count, 2**count], dtype=np.complex128)
+            density[0, 0] = 1
+
+        self.density = density
+
+    @property
+    def density(self) -> np.ndarray:
+        return self._density
+
+    @density.setter
+    def density(self, density: np.ndarray) -> None:
+        density = np.asarray(density, dtype=np.complex128)
+        if density.shape != (2**self.count, 2**self.count):
+            raise ValueError(
+                f"Shape of density ({density.shape}) does not match (2**count, 2**count) ({(2**self.count, 2**self.count)})."
+            )
+
+        self._density = density
+        self.qbits = self._build_qbits()
+
+    def _build_qbits(self) -> tuple[Qbit, ...]:
+        groups = _dissociate_indices(self.density, self.count)
+        entangled_groups: dict[int, list[int]] = {}
+
+        for group in groups:
+            entangled_indices = group if len(group) > 1 else []
+            for index in group:
+                entangled_groups[index] = [
+                    other for other in entangled_indices if other != index
+                ]
+
+        return tuple(
+            Qbit(
+                register=self,
+                index=index,
+                entangled_indices=entangled_groups.get(index, []),
+            )
+            for index in range(self.count)
+        )
 
     def probabilities(self):
         return np.diag(self.density)
 
     def state_vector(self) -> np.ndarray:
         eigenvalues, eigenvectors = np.linalg.eigh(self.density)
-
-        # # Largest eigenvalue
         i = np.argmax(eigenvalues)
-        eigenvalue = eigenvalues[i]
-
-        # A density matrix represents a pure state
-        # only if its largest eigenvalue is ~1.
-        # if not np.isclose(eigenvalue, 1.0):
-        #      raise ValueError("Mixed state has no unique state vector")
-
-        # state_vector = eigenvectors[:, i].copy()
-
-        # # Remove arbitrary global phase
-        # for value in state_vector:
-        #     if not np.isclose(value, 0):
-        #         state_vector /= value / abs(value)
-        #         break
-
-        # return np.real_if_close(state_vector)
 
         if self.is_pure() is False:
             raise ValueError("Mixed state has no unique state vector")
-        return self.probabilities() ** 0.5 * np.exp(1j * np.angle(eigenvectors[:, i]))
+
+        state_vector = eigenvectors[:, i].copy()
+        for value in state_vector:
+            if not np.isclose(value, 0):
+                state_vector /= value / abs(value)
+                break
+
+        return np.real_if_close(state_vector)
 
     def ket(self) -> np.ndarray:
         return self.state_vector().reshape((-1, 1))
@@ -168,27 +234,50 @@ class QRegister:
         return np.isclose(purity, 1.0)
 
     def bloch_vector(self) -> np.ndarray:
-        vectors = np.array([self[i].bloch_vector() for i in range(self.count)])
-        return vectors.reshape((-1, 3))
+        return np.array([self[i].bloch_vector() for i in range(self.count)])
 
     def add_depolarizing_noise(self, purity: float) -> QRegister:
-        new_density = purity * self.density + (1 - purity) * np.eye(2**self.count, dtype=np.complex128) / 2**self.count
+        groups = _dissociate_indices(self.density, self.count)
+        group_densities = []
+
+        for group in groups:
+            subsystem_density = _partial_trace(self.density, self.count, group)
+            noisy_subsystem = purity * subsystem_density + (1 - purity) * np.eye(
+                2 ** len(group), dtype=np.complex128
+            ) / 2 ** len(group)
+            group_densities.append(noisy_subsystem)
+
+        if len(group_densities) == 1:
+            new_density = group_densities[0]
+        else:
+            new_density = group_densities[0]
+            for subsystem_density in group_densities[1:]:
+                new_density = np.kron(new_density, subsystem_density)
+
         return QRegister(self.count, new_density)
 
     def __getitem__(self, index: int) -> Qbit:
         if index < 0 or index >= self.count:
             raise IndexError("QRegister index out of range.")
-        return Qbit(register=self, index=index)
+        return self.qbits[index]
 
     def __repr__(self):
         if self.is_pure():
             return f"PureQRegister<{format_qbits(self.count, self.state_vector())}>"
         else:
-            return f"ImpureQRegister<{self.bloch_vector()}>"
+            return f"ImpureQRegister<{self.count}>"
+
+    def __str__(self):
+        if self.is_pure():
+            return format_qbits(self.count, self.state_vector())
+        else:
+            return f"ImpureQRegister<{self.count}>"
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, QRegister):
-            return self.count == other.count and np.allclose(self.density, other.density)
+            return self.count == other.count and np.allclose(
+                self.density, other.density
+            )
         raise NotImplementedError(
             "Equality comparison is only implemented for QRegister instances."
         )
@@ -202,7 +291,6 @@ class QRegister:
         new_count = self.count + other.count
         new_density = np.kron(self.density, other.density)
         return QRegister(new_count, new_density)
-
 
     @staticmethod
     def zeros(count: int) -> QRegister:
@@ -237,17 +325,22 @@ class QRegister:
                 state_vector[index] = 1 / np.sqrt(count)
         return QRegister(count, _density_from_state_vector(state_vector))
 
-    @staticmethod
-    def werner(purity: float) -> QRegister:
-        return QRegister.bell().add_depolarizing_noise(purity)
 
 class Qbit(QRegister):
-    def __init__(self, register: QRegister, index: int, entangled_with: list[int] | None = None) -> None:
+    def __init__(
+        self,
+        register: QRegister,
+        index: int,
+        entangled_indices: list[int] | None = None,
+    ) -> None:
         if index < 0 or index >= register.count:
             raise IndexError("QbitRef index out of range.")
         self.register = register
         self.index = index
-        self.entangled_with = entangled_with if entangled_with is not None else []
+        self.entangled_indices = (
+            entangled_indices if entangled_indices is not None else []
+        )
+        self.entangled_with = self.entangled_indices
         self.count = 1
 
     @property
@@ -257,7 +350,9 @@ class Qbit(QRegister):
         permutation = [self.index, *other_indices, self.index + self.register.count]
         permutation.extend(i + self.register.count for i in other_indices)
         tensor = np.transpose(tensor, permutation)
-        tensor = tensor.reshape(2, 2 ** (self.register.count - 1), 2, 2 ** (self.register.count - 1))
+        tensor = tensor.reshape(
+            2, 2 ** (self.register.count - 1), 2, 2 ** (self.register.count - 1)
+        )
         return np.einsum("aibi->ab", tensor)
 
     def bloch_vector(self) -> np.ndarray:
@@ -267,10 +362,20 @@ class Qbit(QRegister):
         return np.array([x, y, z])
 
     def is_entangled(self) -> bool:
-        return len(self.entangled_with) > 0
+        return len(self.entangled_indices) > 0
 
     def __repr__(self):
-        if self.is_pure():
-            return f"PureQbit<{format_qbits(self.count, self.state_vector())}>"
+        if self.is_entangled():
+            return f"EntangledQbit<{np.round(self.bloch_vector(), 3)}>"
+        elif self.is_pure():
+            return f"PureQbit<{format_qbits(1, self.state_vector())}>"
         else:
-            return f"EntangledQbit<{self.bloch_vector()}>"
+            return f"MixedQbit<{np.round(self.bloch_vector(), 3)}>"
+
+    def __str__(self):
+        if self.is_entangled():
+            return f"{np.round(self.bloch_vector(), 3)}"
+        elif self.is_pure():
+            return f"{format_qbits(1, self.state_vector())}"
+        else:
+            return f"{np.round(self.bloch_vector(), 3)}"

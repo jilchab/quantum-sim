@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import ast
@@ -72,21 +71,23 @@ def _evaluate_scalar_expression(expression: str) -> float:
         if isinstance(node, ast.Name) and node.id in _ALLOWED_NAMES:
             return float(_ALLOWED_NAMES[node.id])
         if isinstance(node, ast.BinOp) and type(node.op) in _BINARY_OPERATORS:
-            return _BINARY_OPERATORS[type(node.op)](
+            return _BINARY_OPERATORS[type(node.op)](  # ty: ignore[invalid-argument-type]
                 _evaluate(node.left),
                 _evaluate(node.right),
             )
         if isinstance(node, ast.UnaryOp) and type(node.op) in _UNARY_OPERATORS:
-            return _UNARY_OPERATORS[type(node.op)](_evaluate(node.operand))
+            return _UNARY_OPERATORS[type(node.op)](_evaluate(node.operand))  # ty: ignore[invalid-argument-type]
         raise ValueError(f"Unsupported expression '{expression}'.")
 
     parsed = ast.parse(expression, mode="eval")
     return _evaluate(parsed)
 
+
 @dataclass(slots=True)
 class State:
     qbits_dict: dict[str, QRegister] = field(default_factory=dict)
     bits_dict: dict[str, list[int]] = field(default_factory=dict)
+
 
 def parse(input_str: str, state: State) -> State:
     lines = input_str.strip().splitlines()
@@ -143,9 +144,13 @@ def parse(input_str: str, state: State) -> State:
             target_register = state.qbits_dict[target_qbit]
 
             if control_index < 0 or control_index >= control_register.count:
-                raise IndexError(f"Control QRegister '{control_qbit}' index out of range.")
+                raise IndexError(
+                    f"Control QRegister '{control_qbit}' index out of range."
+                )
             if target_index < 0 or target_index >= target_register.count:
-                raise IndexError(f"Target QRegister '{target_qbit}' index out of range.")
+                raise IndexError(
+                    f"Target QRegister '{target_qbit}' index out of range."
+                )
 
             control_ref = control_register[control_index]
             target_ref = target_register[target_index]

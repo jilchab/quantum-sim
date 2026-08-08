@@ -1,10 +1,11 @@
 import numpy as np
 
-from .qregister import QRegister, Qbit
+from .qregister import Qbit, QRegister
 
 
 class MatrixGate:
     matrix: np.ndarray
+
 
 class RMatrixGate:
     @classmethod
@@ -12,7 +13,9 @@ class RMatrixGate:
         raise NotImplementedError("Subclasses must implement the matrix method.")
 
 
-def _full_operator(register: QRegister, qbit_index: int, matrix: np.ndarray) -> np.ndarray:
+def _full_operator(
+    register: QRegister, qbit_index: int, matrix: np.ndarray
+) -> np.ndarray:
     operations = [np.eye(2, dtype=np.complex128) for _ in range(register.count)]
     operations[qbit_index] = matrix.astype(np.complex128)
     full_operator = operations[0]
@@ -84,19 +87,11 @@ def apply_single_qubit_gate(rho, gate, qubit, n_qubits):
     # rho'[..., i_k, ...] = sum_a G[i_k, a] rho[..., a, ...]
     # ---------------------------------------------------------
 
-    rho_tensor = np.tensordot(
-        gate,
-        rho_tensor,
-        axes=([1], [qubit])
-    )
+    rho_tensor = np.tensordot(gate, rho_tensor, axes=([1], [qubit]))
 
     # tensordot moved the new gate axis to the front.
     # Move it back to the original qubit position.
-    rho_tensor = np.moveaxis(
-        rho_tensor,
-        0,
-        qubit
-    )
+    rho_tensor = np.moveaxis(rho_tensor, 0, qubit)
 
     # ---------------------------------------------------------
     # 3. Apply G† to the column index
@@ -106,19 +101,11 @@ def apply_single_qubit_gate(rho, gate, qubit, n_qubits):
 
     gate_dagger = gate.conj().T
 
-    rho_tensor = np.tensordot(
-        rho_tensor,
-        gate_dagger,
-        axes=([n_qubits + qubit], [0])
-    )
+    rho_tensor = np.tensordot(rho_tensor, gate_dagger, axes=([n_qubits + qubit], [0]))
 
     # The new column axis was appended at the end.
     # Move it back to n_qubits + qubit.
-    rho_tensor = np.moveaxis(
-        rho_tensor,
-        -1,
-        n_qubits + qubit
-    )
+    rho_tensor = np.moveaxis(rho_tensor, -1, n_qubits + qubit)
 
     # ---------------------------------------------------------
     # 4. Convert tensor back into the normal density matrix
@@ -126,18 +113,18 @@ def apply_single_qubit_gate(rho, gate, qubit, n_qubits):
 
     return rho_tensor.reshape(dim, dim)
 
+
 class OneQbitGate(MatrixGate):
     @classmethod
     def apply(cls, qbit: Qbit) -> QRegister:
         register = qbit.register
 
-        new_density = apply_single_qubit_gate(register.density, cls.matrix, qbit.index, register.count)
+        new_density = apply_single_qubit_gate(
+            register.density, cls.matrix, qbit.index, register.count
+        )
         register.density = new_density
 
         return register
-
-
-import numpy as np
 
 
 def apply_controlled_gate(
@@ -146,7 +133,6 @@ def apply_controlled_gate(
     controls: list[int],
     target: int,
 ) -> np.ndarray:
-
     rho = np.asarray(rho, dtype=np.complex128)
     gate = np.asarray(gate, dtype=np.complex128)
 
@@ -182,16 +168,12 @@ def apply_controlled_gate(
     # ALL control bits = 1
     # ---------------------------------------------------------
 
-    active = indices[
-        (indices & control_mask) == control_mask
-    ]
+    active = indices[(indices & control_mask) == control_mask]
 
     # ---------------------------------------------------------
     # For every active state, find its partner with the
     # target bit flipped.
     # ---------------------------------------------------------
-
-    partner = active ^ target_mask
 
     # ---------------------------------------------------------
     # IMPORTANT:
@@ -201,9 +183,7 @@ def apply_controlled_gate(
     # target bit = 0
     # ---------------------------------------------------------
 
-    active0 = active[
-        (active & target_mask) == 0
-    ]
+    active0 = active[(active & target_mask) == 0]
 
     active1 = active0 ^ target_mask
 
@@ -225,10 +205,7 @@ def apply_controlled_gate(
     #
     # =========================================================
 
-    rows = np.concatenate([
-        active0,
-        active1
-    ])
+    rows = np.concatenate([active0, active1])
 
     block = rho[np.ix_(rows, rows)]
 
@@ -242,16 +219,9 @@ def apply_controlled_gate(
     # therefore G ⊗ I
     #
 
-    big_gate = np.kron(
-        gate,
-        np.eye(m, dtype=np.complex128)
-    )
+    big_gate = np.kron(gate, np.eye(m, dtype=np.complex128))
 
-    block_new = (
-        big_gate
-        @ block
-        @ big_gate.conj().T
-    )
+    block_new = big_gate @ block @ big_gate.conj().T
 
     result[np.ix_(rows, rows)] = block_new
 
@@ -261,9 +231,7 @@ def apply_controlled_gate(
     # The gate acts only on the active side.
     # =========================================================
 
-    inactive = indices[
-        (indices & control_mask) != control_mask
-    ]
+    inactive = indices[(indices & control_mask) != control_mask]
 
     block = rho[np.ix_(rows, inactive)]
 
@@ -283,21 +251,30 @@ def apply_controlled_gate(
 
     return result
 
+
 class QControlledGate(MatrixGate):
     @classmethod
-    def apply(cls, controls: list[Qbit], target: Qbit) -> QRegister:
+    def apply(cls, controls: list[Qbit] | Qbit, target: Qbit) -> QRegister:
+        if isinstance(controls, Qbit):
+            controls = [controls]
+
         if any(c.register is not target.register for c in controls):
-            raise ValueError("Control and target qubits must belong to the same register.")
+            raise ValueError(
+                "Control and target qubits must belong to the same register."
+            )
 
         # register = target.register
         # unitary = _controlled_unitary(register, control.index, target.index, cls.matrix)
         # _apply_unitary(register, unitary)
 
         register = target.register
-        new_density = apply_controlled_gate(register.density, cls.matrix, [c.index for c in controls], target.index)
+        new_density = apply_controlled_gate(
+            register.density, cls.matrix, [c.index for c in controls], target.index
+        )
         register.density = new_density
 
         return register
+
 
 class RotationGate(RMatrixGate):
     @classmethod
@@ -308,20 +285,31 @@ class RotationGate(RMatrixGate):
 
         return register
 
+
 class H_Matrix(MatrixGate):
     matrix = np.array([[1, 1], [1, -1]]) / np.sqrt(2)
+
 
 class RX(RotationGate):
     @classmethod
     def matrix(cls, theta: float) -> np.ndarray:
-        return np.array([[np.cos(theta / 2), -1j * np.sin(theta / 2)],
-                         [-1j * np.sin(theta / 2), np.cos(theta / 2)]])
+        return np.array(
+            [
+                [np.cos(theta / 2), -1j * np.sin(theta / 2)],
+                [-1j * np.sin(theta / 2), np.cos(theta / 2)],
+            ]
+        )
+
 
 class RY(RotationGate):
     @classmethod
     def matrix(cls, theta: float) -> np.ndarray:
-        return np.array([[np.cos(theta / 2), -np.sin(theta / 2)],
-                         [np.sin(theta / 2), np.cos(theta / 2)]])
+        return np.array(
+            [
+                [np.cos(theta / 2), -np.sin(theta / 2)],
+                [np.sin(theta / 2), np.cos(theta / 2)],
+            ]
+        )
 
 
 class RZ(RotationGate):
@@ -331,38 +319,41 @@ class RZ(RotationGate):
             [[np.exp(-1j * theta / 2), 0], [0, np.exp(1j * theta / 2)]],
         )
 
+
 class X_Matrix(MatrixGate):
     matrix = np.array([[0, 1], [1, 0]])
+
 
 class Y_Matrix(MatrixGate):
     matrix = np.array([[0, -1j], [1j, 0]])
 
+
 class Z_Matrix(MatrixGate):
     matrix = np.array([[1, 0], [0, -1]])
 
-class H(H_Matrix, OneQbitGate):
-    ...
 
-class X(X_Matrix, OneQbitGate):
-    ...
+class H(H_Matrix, OneQbitGate): ...
 
-class Y(Y_Matrix, OneQbitGate):
-    ...
 
-class Z(Z_Matrix, OneQbitGate):
-    ...
+class X(X_Matrix, OneQbitGate): ...
 
-class CH(H_Matrix, QControlledGate):
-    ...
 
-class CX(X_Matrix, QControlledGate):
-    ...
+class Y(Y_Matrix, OneQbitGate): ...
 
-class CY(Y_Matrix, QControlledGate):
-    ...
 
-class CZ(Z_Matrix, QControlledGate):
-    ...
+class Z(Z_Matrix, OneQbitGate): ...
+
+
+class CH(H_Matrix, QControlledGate): ...
+
+
+class CX(X_Matrix, QControlledGate): ...
+
+
+class CY(Y_Matrix, QControlledGate): ...
+
+
+class CZ(Z_Matrix, QControlledGate): ...
 
 
 class SWAPGate:
@@ -377,6 +368,7 @@ class SWAPGate:
 
         return qbit1.register
 
+
 class SWAP:
     @classmethod
     def apply(cls, qbit1: Qbit, qbit2: Qbit) -> QRegister:
@@ -388,7 +380,10 @@ class Measure:
     def apply(cls, qbit: Qbit) -> int:
         register = qbit.register
         reduced_density = qbit.density
-        p = np.array([np.real(reduced_density[0, 0]), np.real(reduced_density[1, 1])], dtype=float)
+        p = np.array(
+            [np.real(reduced_density[0, 0]), np.real(reduced_density[1, 1])],
+            dtype=float,
+        )
 
         total_probability = p.sum()
         if np.isclose(total_probability, 0):
