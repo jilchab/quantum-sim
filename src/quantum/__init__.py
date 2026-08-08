@@ -1,3 +1,4 @@
+from .display import display_qbit, display_register, display_state
 from .gates import (
     CH,
     CX,
@@ -6,10 +7,14 @@ from .gates import (
     RX,
     RY,
     RZ,
+    AmplitudeDampingNoise,
+    BitFlipNoise,
+    DepolarizingNoise,
     H,
     MatrixGate,
     Measure,
     OneQbitGate,
+    PhaseFlipNoise,
     QControlledGate,
     RMatrixGate,
     RotationGate,
@@ -21,10 +26,16 @@ from .gates import (
 from .qregister import Qbit, QRegister
 
 __all__ = [
+    "AmplitudeDampingNoise",
+    "BitFlipNoise",
     "CH",
     "CX",
     "CY",
     "CZ",
+    "DepolarizingNoise",
+    "PhaseFlipNoise",
+    "Qbit",
+    "QRegister",
     "RX",
     "RY",
     "RZ",
@@ -39,6 +50,7 @@ __all__ = [
     "X",
     "Y",
     "Z",
-    "Qbit",
-    "QRegister",
+    "display_qbit",
+    "display_register",
+    "display_state",
 ]
