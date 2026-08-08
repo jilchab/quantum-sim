@@ -212,7 +212,7 @@ class QRegister:
         eigenvalues, eigenvectors = np.linalg.eigh(self.density)
         i = np.argmax(eigenvalues)
 
-        if self.is_pure() is False:
+        if not self.is_pure():
             raise ValueError("Mixed state has no unique state vector")
 
         state_vector = eigenvectors[:, i].copy()
@@ -233,28 +233,19 @@ class QRegister:
         purity = np.trace(self.density @ self.density)
         return np.isclose(purity, 1.0)
 
+    def purity(self) -> float:
+        """Compute purity of the quantum state: P = trace(ρ²)."""
+        return float(np.real(np.trace(self.density @ self.density)))
+
+    def entropy(self) -> float:
+        """Compute Von Neumann entropy: S = -trace(ρ log ρ)."""
+        eigenvalues = np.linalg.eigvalsh(self.density)
+        eigenvalues = eigenvalues[eigenvalues > 1e-15]
+        entropy_val = -np.sum(eigenvalues * np.log2(eigenvalues))
+        return float(np.real(entropy_val)) if not np.isclose(entropy_val, 0) else 0.0
+
     def bloch_vector(self) -> np.ndarray:
         return np.array([self[i].bloch_vector() for i in range(self.count)])
-
-    def add_depolarizing_noise(self, purity: float) -> QRegister:
-        groups = _dissociate_indices(self.density, self.count)
-        group_densities = []
-
-        for group in groups:
-            subsystem_density = _partial_trace(self.density, self.count, group)
-            noisy_subsystem = purity * subsystem_density + (1 - purity) * np.eye(
-                2 ** len(group), dtype=np.complex128
-            ) / 2 ** len(group)
-            group_densities.append(noisy_subsystem)
-
-        if len(group_densities) == 1:
-            new_density = group_densities[0]
-        else:
-            new_density = group_densities[0]
-            for subsystem_density in group_densities[1:]:
-                new_density = np.kron(new_density, subsystem_density)
-
-        return QRegister(self.count, new_density)
 
     def __getitem__(self, index: int) -> Qbit:
         if index < 0 or index >= self.count:

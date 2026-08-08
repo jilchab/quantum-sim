@@ -2,6 +2,8 @@ import numpy as np
 
 from .qregister import Qbit, QRegister
 
+type KlausNoiseTransformations = list[tuple[float, np.ndarray]]
+
 
 class MatrixGate:
     matrix: np.ndarray
@@ -276,6 +278,94 @@ class QControlledGate(MatrixGate):
         return register
 
 
+class KlausNoise:
+    """
+    General Kraus operator noise channel.
+    Transformations should be a list of tuples (p, K) where p is the probability and K is the 2x2 matrix to apply.
+    Example for a depolarizing channel with probability p:
+    transformations = [
+        (1 - p, I.matrix),
+        (p / 3, X.matrix),
+        (p / 3, Y.matrix),
+        (p / 3, Z.matrix),
+    ]
+    """
+
+    def __init__(self, transformations: KlausNoiseTransformations):
+        self.transformations = transformations
+
+    def apply(self, qbit: Qbit, **kwargs) -> QRegister:
+        register = qbit.register
+        n_qubits = register.count
+        new_density = np.zeros((2**n_qubits, 2**n_qubits), dtype=np.complex128)
+
+        for p, matrix in self.transformations:
+            kraus_op = np.sqrt(p) * matrix
+            new_density += apply_single_qubit_gate(
+                register.density, kraus_op, qbit.index, n_qubits
+            )
+
+        register.density = new_density
+        return register
+
+
+class DepolarizingNoise(KlausNoise):
+    """Single-qubit depolarizing channel: p·ρ + (1-p)/3·(X·ρ·X† + Y·ρ·Y† + Z·ρ·Z†)."""
+
+    def __init__(self, probability: float):
+        if not (0 <= probability <= 1):
+            raise ValueError("probability must be in [0, 1]")
+        self.probability = probability
+
+        self.transformations: KlausNoiseTransformations = [
+            (1 - probability, np.eye(2, dtype=np.complex128)),
+            (probability / 3, X.matrix),
+            (probability / 3, Y.matrix),
+            (probability / 3, Z.matrix),
+        ]
+
+
+class BitFlipNoise(KlausNoise):
+    """Bit flip channel: (1-p)·ρ + p·X·ρ·X†."""
+
+    def __init__(self, flip_probability: float):
+        if not (0 <= flip_probability <= 1):
+            raise ValueError("flip_probability must be in [0, 1]")
+        self.flip_probability = flip_probability
+
+        self.transformations: KlausNoiseTransformations = [
+            (1 - flip_probability, np.eye(2, dtype=np.complex128)),
+            (flip_probability, X.matrix),
+        ]
+
+
+class PhaseFlipNoise(KlausNoise):
+    """Phase flip channel: (1-p)·ρ + p·Z·ρ·Z†."""
+
+    def __init__(self, flip_probability: float):
+        if not (0.0 <= flip_probability <= 1.0):
+            raise ValueError("flip_probability must be in [0, 1]")
+        self.flip_probability = flip_probability
+
+        self.transformations: KlausNoiseTransformations = [
+            (1 - flip_probability, np.eye(2, dtype=np.complex128)),
+            (flip_probability, Z.matrix),
+        ]
+
+
+class AmplitudeDampingNoise(KlausNoise):
+    """Amplitude damping channel: models energy loss. K_0 = [[1, 0], [0, sqrt(1-γ)]], K_1 = [[0, sqrt(γ)], [0, 0]]."""
+
+    def __init__(self, gamma: float):
+        if not (0 <= gamma <= 1):
+            raise ValueError("gamma must be in [0, 1]")
+        self.gamma = gamma
+
+        K0 = np.array([[1, 0], [0, np.sqrt(1 - gamma)]], dtype=np.complex128)
+        K1 = np.array([[0, np.sqrt(gamma)], [0, 0]], dtype=np.complex128)
+        self.transformations: KlausNoiseTransformations = [(1, K0), (1, K1)]
+
+
 class RotationGate(RMatrixGate):
     @classmethod
     def apply(cls, qbit: Qbit, theta: float) -> QRegister:
@@ -288,6 +378,10 @@ class RotationGate(RMatrixGate):
 
 class H_Matrix(MatrixGate):
     matrix = np.array([[1, 1], [1, -1]]) / np.sqrt(2)
+
+
+class I_Matrix(MatrixGate):
+    matrix = np.eye(2, dtype=np.complex128)
 
 
 class RX(RotationGate):
